@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Letterboxd List Ratings",
+  "version": "1.0",
+  "description": "Показывает твои оценки и лайки на карточках фильмов в списках Letterboxd",
+  "permissions": ["storage"],
+  "host_permissions": ["https://letterboxd.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://letterboxd.com/*/list/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
