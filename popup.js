@@ -1,22 +1,42 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('username');
+  const toggleBtn = document.getElementById('toggle');
+  const clearBtn = document.getElementById('clearCache');
   const status = document.getElementById('status');
 
-  chrome.storage.local.get(['username'], (r) => {
-    if (r.username) input.value = r.username;
-  });
+  function getActiveTab(cb) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab || !tab.url || !tab.url.includes('letterboxd.com')) {
+        status.textContent = 'Открой список на letterboxd.com.';
+        return;
+      }
+      cb(tab);
+    });
+  }
 
-  document.getElementById('save').addEventListener('click', () => {
-    const username = input.value.trim();
-    if (!username) return;
-    chrome.storage.local.set({ username }, () => {
-      status.textContent = 'Сохранено. Перезагрузи страницу списка.';
+  toggleBtn.addEventListener('click', () => {
+    getActiveTab((tab) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'toggle' }, (resp) => {
+        if (chrome.runtime.lastError) {
+          status.textContent = 'Обнови страницу и попробуй снова.';
+          return;
+        }
+        if (resp && resp.visible) {
+          toggleBtn.textContent = 'Скрыть оценки';
+          status.textContent = 'Оценки показаны.';
+        } else {
+          toggleBtn.textContent = 'Показать оценки';
+          status.textContent = 'Оценки скрыты.';
+        }
+      });
     });
   });
 
-  document.getElementById('clearCache').addEventListener('click', () => {
-    chrome.storage.local.remove(['lb_ratings_cache'], () => {
-      status.textContent = 'Кэш очищен. При следующем открытии данные скачаются заново.';
+  clearBtn.addEventListener('click', () => {
+    getActiveTab((tab) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'clearCache' }, () => {
+        status.textContent = 'Кэш очищен. Обнови страницу.';
+      });
     });
   });
 });

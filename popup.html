@@ -3,17 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <style>
-  body { font-family: sans-serif; width: 260px; padding: 12px; }
-  input { width: 100%; padding: 6px; margin-bottom: 8px; box-sizing: border-box; }
+  body { font-family: sans-serif; width: 220px; padding: 12px; }
   button { width: 100%; padding: 8px; cursor: pointer; margin-bottom: 6px; }
-  #status { font-size: 12px; color: #555; }
+  #clearCache { font-size: 12px; background: none; border: 1px solid #ccc; color: #777; }
+  #status { font-size: 12px; color: #555; margin-top: 4px; }
 </style>
 </head>
 <body>
-  <label>Твой Letterboxd username:</label>
-  <input type="text" id="username" placeholder="например johndoe">
-  <button id="save">Сохранить</button>
-  <button id="clearCache">Очистить кэш</button>
+  <button id="toggle">Скрыть оценки</button>
+  <button id="clearCache">Очистить кэш лайков</button>
   <p id="status"></p>
   <script src="popup.js"></script>
 </body>

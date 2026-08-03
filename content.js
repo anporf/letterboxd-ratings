@@ -1,10 +1,21 @@
-const CACHE_KEY = 'lb_ratings_cache';
+const CACHE_KEY = 'lb_likes_cache';
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 часа
 
-function getUsername() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['username'], (r) => resolve(r.username || null));
-  });
+let badgesVisible = true;
+
+// Определяем username залогиненного пользователя из DOM
+function detectUsername() {
+  // Letterboxd встраивает data-owner на элементах навигации
+  const ownerEl = document.querySelector('[data-owner]');
+  if (ownerEl) return ownerEl.getAttribute('data-owner');
+
+  // Запасной вариант: ссылка на профиль в шапке
+  const accountLink = document.querySelector('a.account-link[href]');
+  if (accountLink) {
+    const m = accountLink.getAttribute('href').match(/^\/([^/]+)\/?$/);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 function getCache() {
@@ -19,144 +30,138 @@ function setCache(data) {
   });
 }
 
-// Letterboxd использует div.react-component с data-item-slug
-// Рейтинг хранится в li-родителе через span[class*="rated-"]
-function parsePosterPage(html) {
+// Парсим страницу лайков — ищем data-item-slug
+function parseLikesPage(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const results = [];
-
+  const slugs = [];
   doc.querySelectorAll('[data-item-slug]').forEach((el) => {
     const slug = el.getAttribute('data-item-slug');
-    if (!slug) return;
-
-    let rating = null;
-    const li = el.closest('li');
-    if (li) {
-      const ratingEl = li.querySelector('[class*="rated-"]');
-      if (ratingEl) {
-        const m = ratingEl.className.match(/rated-(\d+)/);
-        if (m) rating = parseInt(m[1], 10) / 2; // rated-8 => 4.0
-      }
-    }
-
-    results.push({ slug, rating });
+    if (slug) slugs.push(slug);
   });
-
   const hasNext = !!doc.querySelector('a.next');
-  return { results, hasNext };
+  return { slugs, hasNext };
 }
 
-async function fetchAllPages(baseUrl, maxPages = 25) {
-  let all = [];
+async function fetchLikes(username, maxPages = 25) {
+  const liked = new Set();
   let page = 1;
 
   while (page <= maxPages) {
-    const url = page === 1 ? baseUrl : `${baseUrl}page/${page}/`;
+    const url = page === 1
+      ? `https://letterboxd.com/${username}/likes/films/`
+      : `https://letterboxd.com/${username}/likes/films/page/${page}/`;
+
     let resp;
     try {
       resp = await fetch(url, { credentials: 'include' });
-    } catch (e) {
-      break;
-    }
+    } catch (e) { break; }
     if (!resp.ok) break;
 
-    const html = await resp.text();
-    const { results, hasNext } = parsePosterPage(html);
-    all = all.concat(results);
+    const { slugs, hasNext } = parseLikesPage(await resp.text());
+    slugs.forEach(s => liked.add(s));
 
-    if (!hasNext || results.length === 0) break;
+    if (!hasNext || slugs.length === 0) break;
     page++;
-    await new Promise((r) => setTimeout(r, 300)); // не долбим сервер
+    await new Promise(r => setTimeout(r, 300));
   }
-  return all;
+
+  return liked;
 }
 
-async function fetchUserData(username) {
-  const ratingsUrl = `https://letterboxd.com/${username}/films/ratings/`;
-  const likesUrl = `https://letterboxd.com/${username}/likes/films/`;
+async function getLikedSet(username) {
+  const cache = await getCache();
+  if (cache && cache.username === username &&
+      Date.now() - cache.timestamp < CACHE_TTL &&
+      cache.data.length > 0) {
+    return new Set(cache.data);
+  }
 
-  const [ratings, likes] = await Promise.all([
-    fetchAllPages(ratingsUrl),
-    fetchAllPages(likesUrl)
-  ]);
-
-  const map = {};
-  ratings.forEach(({ slug, rating }) => {
-    map[slug] = { ...(map[slug] || {}), rating };
-  });
-  likes.forEach(({ slug }) => {
-    map[slug] = { ...(map[slug] || {}), liked: true };
-  });
-
-  return map;
+  const liked = await fetchLikes(username);
+  await setCache({ data: Array.from(liked), username });
+  return liked;
 }
 
-function injectBadges(map) {
-  document.querySelectorAll('[data-item-slug]').forEach((el) => {
-    const slug = el.getAttribute('data-item-slug');
-    const info = map[slug];
-    if (!info) return;
-    if (el.querySelector('.lb-ext-badge')) return;
+function injectBadges(likedSet) {
+  document.querySelectorAll('li.posteritem').forEach((li) => {
+    const ratingRaw = parseInt(li.getAttribute('data-owner-rating') || '0', 10);
+    const slugEl = li.querySelector('[data-item-slug]');
+    if (!slugEl) return;
+    if (slugEl.querySelector('.lb-ext-badge')) return;
+
+    const slug = slugEl.getAttribute('data-item-slug');
+    const liked = likedSet ? likedSet.has(slug) : false;
 
     let html = '';
-    if (info.rating) {
-      const full = Math.floor(info.rating);
-      const half = info.rating % 1 ? '½' : '';
+    if (ratingRaw > 0) {
+      const rating = ratingRaw / 2;
+      const full = Math.floor(rating);
+      const half = rating % 1 ? '½' : '';
       html += `<span class="lb-ext-stars">${'★'.repeat(full)}${half}</span>`;
     }
-    if (info.liked) html += `<span class="lb-ext-heart">❤</span>`;
+    if (liked) html += `<span class="lb-ext-heart">❤</span>`;
 
     if (html) {
       const badge = document.createElement('div');
       badge.className = 'lb-ext-badge';
       badge.innerHTML = html;
-      el.style.position = 'relative';
-      el.appendChild(badge);
+      slugEl.style.position = 'relative';
+      slugEl.appendChild(badge);
     }
   });
 }
 
-// Ждём появления постеров в DOM (страница рендерится через React)
+function hideBadges() {
+  document.querySelectorAll('.lb-ext-badge').forEach(b => b.style.display = 'none');
+}
+
+function showBadges() {
+  document.querySelectorAll('.lb-ext-badge').forEach(b => b.style.display = '');
+}
+
 function waitForPosters(timeout = 10000) {
   return new Promise((resolve) => {
-    const existing = document.querySelectorAll('[data-item-slug]');
-    if (existing.length > 0) return resolve(existing.length);
-
+    if (document.querySelector('li.posteritem')) return resolve();
     const observer = new MutationObserver(() => {
-      const els = document.querySelectorAll('[data-item-slug]');
-      if (els.length > 0) {
+      if (document.querySelector('li.posteritem')) {
         observer.disconnect();
-        resolve(els.length);
+        resolve();
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-
-    setTimeout(() => {
-      observer.disconnect();
-      resolve(document.querySelectorAll('[data-item-slug]').length);
-    }, timeout);
+    setTimeout(() => { observer.disconnect(); resolve(); }, timeout);
   });
 }
 
+let cachedLikedSet = null;
+
 async function main() {
-  const username = await getUsername();
-  if (!username) {
-    console.warn('[LB Ratings] Открой попап расширения и введи свой username.');
-    return;
-  }
-
-  let cache = await getCache();
-  let map;
-
-  if (cache && Date.now() - cache.timestamp < CACHE_TTL && Object.keys(cache.data).length > 0) {
-    map = cache.data;
-  } else {
-    map = await fetchUserData(username);
-    await setCache(map);
-  }
-
   await waitForPosters();
-  injectBadges(map);
+
+  const username = detectUsername();
+
+  if (username) {
+    cachedLikedSet = await getLikedSet(username);
+  }
+
+  injectBadges(cachedLikedSet);
 }
 
 main();
+
+// Слушаем команды из попапа
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.action === 'toggle') {
+    if (badgesVisible) {
+      hideBadges();
+      badgesVisible = false;
+    } else {
+      injectBadges(cachedLikedSet);
+      showBadges();
+      badgesVisible = true;
+    }
+    sendResponse({ visible: badgesVisible });
+  } else if (msg.action === 'clearCache') {
+    chrome.storage.local.remove([CACHE_KEY], () => sendResponse({ ok: true }));
+    return true; // async
+  }
+});
