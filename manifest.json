@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Letterboxd List Ratings",
   "version": "2.0",
-  "description": "Показывает твои оценки и лайки на карточках фильмов в списках Letterboxd",
-  "permissions": ["tabs", "activeTab", "storage"],
+  "description": "Показывает твои оценки на карточках фильмов в списках Letterboxd",
+  "permissions": ["tabs", "activeTab"],
   "host_permissions": ["https://letterboxd.com/*"],
   "content_scripts": [
     {
