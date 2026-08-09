@@ -1,23 +1,42 @@
+const VISIBLE_KEY = 'lb_badges_visible';
+
 let badgesVisible = true;
+
+// Читаем сохранённое состояние и применяем его
+chrome.storage.local.get([VISIBLE_KEY], (r) => {
+  if (r[VISIBLE_KEY] === false) {
+    badgesVisible = false;
+    // Ждём рендера, потом скрываем
+    waitForPosters().then(() => {
+      injectBadges();
+      hideBadges();
+    });
+  } else {
+    waitForPosters().then(() => injectBadges());
+  }
+});
 
 function injectBadges() {
   document.querySelectorAll('li.posteritem').forEach((li) => {
     const ratingRaw = parseInt(li.getAttribute('data-owner-rating') || '0', 10);
     if (ratingRaw === 0) return;
 
-    const slugEl = li.querySelector('[data-item-slug]');
-    if (!slugEl) return;
-    if (slugEl.querySelector('.lb-ext-badge')) return;
+    if (li.querySelector('.lb-ext-badge')) return;
 
-    const rating = ratingRaw / 2; // data-owner-rating: 9 => 4.5★
+    const rating = ratingRaw / 2;
     const full = Math.floor(rating);
     const half = rating % 1 ? '½' : '';
 
     const badge = document.createElement('div');
     badge.className = 'lb-ext-badge';
     badge.innerHTML = `<span class="lb-ext-stars">${'★'.repeat(full)}${half}</span>`;
-    slugEl.style.position = 'relative';
-    slugEl.appendChild(badge);
+
+    const numberEl = li.querySelector('.list-number');
+    if (numberEl) {
+      li.insertBefore(badge, numberEl);
+    } else {
+      li.appendChild(badge);
+    }
   });
 }
 
@@ -29,7 +48,6 @@ function showBadges() {
   document.querySelectorAll('.lb-ext-badge').forEach(b => b.style.display = '');
 }
 
-// Ждём появления li.posteritem в DOM (React рендерит страницу асинхронно)
 function waitForPosters(timeout = 10000) {
   return new Promise((resolve) => {
     if (document.querySelector('li.posteritem')) return resolve();
@@ -44,13 +62,6 @@ function waitForPosters(timeout = 10000) {
   });
 }
 
-async function main() {
-  await waitForPosters();
-  injectBadges();
-}
-
-main();
-
 // Слушаем команды из попапа
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'toggle') {
@@ -62,6 +73,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       showBadges();
       badgesVisible = true;
     }
+    chrome.storage.local.set({ [VISIBLE_KEY]: badgesVisible });
+    sendResponse({ visible: badgesVisible });
+  } else if (msg.action === 'getState') {
     sendResponse({ visible: badgesVisible });
   }
 });

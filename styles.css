@@ -1,25 +1,13 @@
 .lb-ext-badge {
-  position: absolute;
-  bottom: 4px;
-  left: 4px;
-  right: 4px;
-  background: rgba(0, 0, 0, 0.8);
-  color: #ffd633;
-  font-size: 11px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  z-index: 10;
+  display: block;
+  text-align: center;
   pointer-events: none;
+  line-height: 1;
+  margin: 2px 0 0;
 }
 
 .lb-ext-stars {
+  color: #00e054;
+  font-size: 12px;
   letter-spacing: -1px;
-}
-
-.lb-ext-heart {
-  color: #ff4b6e;
-  margin-left: 4px;
 }
